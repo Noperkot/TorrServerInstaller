@@ -1,2 +1,3 @@
-# TorrServerInstaller
-TorrServer online/offline Installers (Windows)
+#### *Онлайн-установщик TorrServer'а (Windows).*  
+  
+Сам скачает все необходимые компоненты (актуальные версии  TorrServer+Launcher), разложит по папкам и создаст ярлыки.
