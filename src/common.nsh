@@ -7,6 +7,8 @@ Unicode True
 ${StrRep}
 
 ; -------------------------- Defines -------------------------------------
+!define ADMINMODE		; будут доступны функции брандмауэра и автообновления
+
 !define VERSION "3.0.1"
 !system  "python build.py"
 !include "build.nsh"
@@ -54,7 +56,11 @@ OutFile "${OUTDIR}/${INSTALLER}"
 ; SetCompressor lzma ; zlib bzip2 lzma off	; lzma лучше пакует(~10%), но VirusTotal благосклонней относится к дефолтному zlib???
 ; ManifestSupportedOS none					;
 ManifestDPIAware true
-RequestExecutionLevel highest				; user, admin
+!ifdef ADMINMODE
+	RequestExecutionLevel highest
+!else
+	RequestExecutionLevel user
+!endif
 AllowRootDirInstall true
 BrandingText " "							; убираем из окна инсталлятора строку строку "Nullsoft Install System vX.XX"
 SpaceTexts none 							; убираем требуемое место на диске
@@ -382,7 +388,9 @@ Function FinishPageShow ; добавляем свои чекбоксы на фи
 	Pop $_Shortcut_
 	${NSD_SetState} $_Shortcut_ ${BST_CHECKED}
 	SetCtlColors $_Shortcut_ "" "ffffff"
-
+	
+!ifdef ADMINMODE
+	
 	Var /GLOBAL _Autoupdate_
 	${NSD_CreateCheckbox} 120u 131u 100% 10u "$(_AUTOUPDATE_)"
 	Pop $_Autoupdate_
@@ -392,16 +400,6 @@ Function FinishPageShow ; добавляем свои чекбоксы на фи
 	${NSD_CreateCheckbox} 120u 145u 100% 10u "$(_ADD_FWRULE_EXCEPTIONS_)"
 	Pop $_FWrule_
 	SetCtlColors $_FWrule_ "" "ffffff"
-
-	Var /GLOBAL _Chrome_
-	${NSD_CreateRadioButton} 120u 163u 100% 10u "$(_CHROME_EXTENSION_) (web)"
-	Pop $_Chrome_
-	SetCtlColors $_Chrome_CHB "" "ffffff"
-
-	Var /GLOBAL _Firefox_
-	${NSD_CreateRadioButton} 120u 175u 100% 10u "$(_FIREFOX_EXTENSION_) (web)"
-	Pop $_Firefox_
-	SetCtlColors $_Firefox_CHB "" "ffffff"
 
 	; проверка доступности брандмауэра удалением правила. если доступен - выставляем галку, если нет - скрываем чекбокс
 	!insertmacro fwRuleRemove "$INSTDIR\$TSexe" $0
@@ -420,6 +418,18 @@ Function FinishPageShow ; добавляем свои чекбоксы на фи
 	${Else}
 		ShowWindow $_Autoupdate_ ${SW_HIDE}
 	${EndIf}
+	
+!endif
+	
+	Var /GLOBAL _Chrome_
+	${NSD_CreateRadioButton} 120u 163u 100% 10u "$(_CHROME_EXTENSION_) (web)"
+	Pop $_Chrome_
+	SetCtlColors $_Chrome_CHB "" "ffffff"
+
+	Var /GLOBAL _Firefox_
+	${NSD_CreateRadioButton} 120u 175u 100% 10u "$(_FIREFOX_EXTENSION_) (web)"
+	Pop $_Firefox_
+	SetCtlColors $_Firefox_CHB "" "ffffff"	
 	
 	Pop $0
 FunctionEnd
@@ -444,6 +454,8 @@ Function FinishPageLeave ; обрабатываем финишные чекбо�
 		Delete "$DESKTOP\${APPNAME}.lnk"
 	${EndIf}
 
+!ifdef ADMINMODE
+	
 	!insertmacro AutoupdateTaskRemove
 	${NSD_GetState} $_Autoupdate_ $0
 	${If} $0 == ${BST_CHECKED}
@@ -454,6 +466,8 @@ Function FinishPageLeave ; обрабатываем финишные чекбо�
 	${If} $0 == ${BST_CHECKED}
 		!insertmacro fwRuleCreate "$INSTDIR\$TSexe" $0
 	${EndIf}
+	
+!endif
 
 	${NSD_GetState} $_Chrome_ $0
 	${If} $0 == ${BST_CHECKED}
@@ -536,11 +550,13 @@ Section Uninstall
 	; Delete Shortcuts
 	Delete "$DESKTOP\${APPNAME}.lnk"
 	RMDir /r "$SMPROGRAMS\${APPNAME}"
+!ifdef ADMINMODE
 	; Delete autoupdate task
 	!insertmacro AutoupdateTaskRemove
 	; Delete firewall rules
 	!insertmacro fwRuleRemove "$INSTDIR\${TS32EXE}" $0
 	!insertmacro fwRuleRemove "$INSTDIR\${TS64EXE}" $0
+!endif
 	; Clean up Application
 	Delete "$INSTDIR\tsl.exe"
 	Delete "$INSTDIR\${TS32EXE}"
@@ -632,11 +648,15 @@ LangString _CHROME_EXTENSION_ ${LANG_ENGLISH} "Chrome Extensions"
 LangString _FIREFOX_EXTENSION_ ${LANG_RUSSIAN} "Расширениe Firefox" ; $(_FIREFOX_EXTENSION_)
 LangString _FIREFOX_EXTENSION_ ${LANG_ENGLISH} "Firefox Extensions"
 
-LangString _ADD_FWRULE_EXCEPTIONS_ ${LANG_RUSSIAN} "Добавить в исключения брандмауэра" ; $(_ADD_FWRULE_EXCEPTIONS_)
-LangString _ADD_FWRULE_EXCEPTIONS_ ${LANG_ENGLISH} "Add to firewall exceptions"
+!ifdef ADMINMODE
 
-LangString _AUTOUPDATE_ ${LANG_RUSSIAN} "Автообновление" ; $(_AUTOUPDATE_)
-LangString _AUTOUPDATE_ ${LANG_ENGLISH} "Autoupdate"
+	LangString _ADD_FWRULE_EXCEPTIONS_ ${LANG_RUSSIAN} "Добавить в исключения брандмауэра" ; $(_ADD_FWRULE_EXCEPTIONS_)
+	LangString _ADD_FWRULE_EXCEPTIONS_ ${LANG_ENGLISH} "Add to firewall exceptions"
+	
+	LangString _AUTOUPDATE_ ${LANG_RUSSIAN} "Автообновление" ; $(_AUTOUPDATE_)
+	LangString _AUTOUPDATE_ ${LANG_ENGLISH} "Autoupdate"
+	
+!endif
 
 LangString _LAUNCH_ON_LOGON_ ${LANG_RUSSIAN} "Запускать при входе в Windows" ; $(_LAUNCH_ON_LOGON_)
 LangString _LAUNCH_ON_LOGON_ ${LANG_ENGLISH} "Launch on logon"
