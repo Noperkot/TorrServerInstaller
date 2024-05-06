@@ -89,7 +89,9 @@ Section  Install Install_ID ; секция установки
 	DetailPrint "$(_DOWNLOAD_) $(_COMPLETE_)"
 	!insertmacro commonInstallSection
 	!insertmacro Move "$TSexe"
-	!insertmacro Move "tsl.exe"
+	${IfNot} ${Silent}
+		!insertmacro Move "tsl.exe"
+	${EndIf}
 	${If} "$EXEDIR" != "$INSTDIR"
 		CopyFiles /SILENT "$EXEPATH" "$INSTDIR\${ONLINE_INSTALLER}"
 	${EndIf}
