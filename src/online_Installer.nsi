@@ -25,7 +25,7 @@ Function Download
 	SetDetailsPrint listonly
 	DetailPrint "$(_DOWNLOAD_) $1 -> $0"
 	SetDetailsPrint both
-	NScurl::http GET "$1" "$0" /CACERT "" /CANCEL /* /TIMEOUT 30000 */ /END
+	NScurl::http GET "$1" "$0" /CACERT "" /CANCEL /TIMEOUT 30000 /END
 	; NSxfer::Transfer /URL "$1" /LOCAL "$0" /ABORT "" "" /TIMEOUTCONNECT 30000 /END ; под XP с гитхабом не работает, но зато библиотека крошечная...
 	Pop $1
 	${If} $1 != "OK"
