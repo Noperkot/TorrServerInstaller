@@ -85,7 +85,9 @@ SectionEnd
 Section  Install Install_ID ; секция установки
  	DetailPrint "$(_DOWNLOAD_) $(_COMPONENTS_)..."
 	!insertmacro Download "https://github.com/YouROK/TorrServer/releases/download/$TS_toInstall/$TSexe" "$TempDir\$TSexe"
-	!insertmacro Download "https://github.com/Noperkot/TSL/releases/latest/download/tsl.exe" "$TempDir\tsl.exe"
+	${IfNot} ${Silent}
+		!insertmacro Download "https://github.com/Noperkot/TSL/releases/latest/download/tsl.exe" "$TempDir\tsl.exe"
+	${EndIf}
 	DetailPrint "$(_DOWNLOAD_) $(_COMPLETE_)"
 	!insertmacro commonInstallSection
 	!insertmacro Move "$TSexe"
