@@ -27,7 +27,7 @@ ${StrRep}
 !define COPYRIGHT "${AUTHORS} © 2024"
 !define REG_UNINST_SUBKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPNAME}"
 !define REG_RUN_SUBKEY "Software\Microsoft\Windows\CurrentVersion\Run"
-!define ICONSDIR "files\icons" 
+!define ICONSDIR "files\icons"
 !define UNINSTALLICON "uninst.ico"
 !define TS32EXE "TorrServer-windows-386.exe"
 !define TS64EXE "TorrServer-windows-amd64.exe"
@@ -77,7 +77,7 @@ SpaceTexts none 							; убираем требуемое место на ди�
 ;
 !define MUI_PAGE_CUSTOMFUNCTION_PRE WelcomePagePre		; проверка ключа /SkipWelcome
 !insertmacro MUI_PAGE_WELCOME							; страница приветствия
-!insertmacro Preinstall									; получаем список версий ТС
+!insertmacro GetVersions								; получаем список версий ТС
 Page Custom OptionsPageCreate OptionsPageLeave			; страница выбора верси и пути установки
 !insertmacro MUI_PAGE_INSTFILES							; собственно сама установка
 !define MUI_FINISHPAGE_RUN								; галка запуска на финишной странице
@@ -234,7 +234,7 @@ VIAddVersionKey  /LANG=${LANG_ENGLISH} "NSIS" "${NSIS_VERSION} (${OS})"
 !macro fwRuleRemove exepath result
 	; nsisFirewallW::RemoveAuthorizedApplication `${exepath}`
 	; Pop ${result} ; 0-success
-	
+
 	UserInfo::GetAccountType
 	Pop ${result}
 	${If} ${result} == "admin"
@@ -275,7 +275,7 @@ FunctionEnd
 
 Function OptionsPageCreate
 	Push $0
-	
+
 	!insertmacro MUI_HEADER_TEXT "$(_CUSTOM_PAGE_TITLE_)" "$(^ComponentsText)"
 
 	Var /GLOBAL SelVer_DLG
@@ -307,13 +307,12 @@ Function OptionsPageCreate
 	Var /GLOBAL InstDir_DR
 	${NSD_CreateDirRequest} 5% 119u 70% 12u "$INSTDIR"
 	Pop $InstDir_DR
-	${NSD_OnChange} $InstDir_DR OnDirChange
+	EnableWindow $InstDir_DR 0
 	${NSD_CreateBrowseButton} 78% 118u 17% 14u "$(^BrowseBtn)"
 	Pop $0
 	${NSD_OnClick} $0 OnDirBrowse
-	
+
 	${If} ${FileExists} "$INSTDIR\${UNINSTALLER}"						; считаем что TS уже установлен если по этому пути есть файл Uninstall.exe
-		EnableWindow $InstDir_DR 0										; гасим строку с путем
 		EnableWindow $0 0												; гасим кнопку выбора пути
 		${NSD_SetText} $mui.Header.SubText  "$(_REINSTALL_SUBTEXT_)"	; сообщаем что это переустановка
 	${EndIf}
@@ -336,7 +335,6 @@ Function OptionsPageCreate
 	${EndIf}
 
     nsDialogs::Show
-	
 	Pop $0
 FunctionEnd
 
@@ -351,23 +349,6 @@ Function OnDirBrowse
 	Pop $0
 FunctionEnd
 
-Function OnDirChange
-	Push $0
-	Push $1
-	${NSD_GetText} $InstDir_DR $0
-	StrCpy $1 $0 2 1	; ":\"
-	StrCpy $0 $0 2		; "C:"
-	System::Call 'kernel32::GetDriveType(t"$0")i.r0'
-	${If} $1 == ":\"
-	${AndIf} $0 == 3 ; 3-fixed drive
-		EnableWindow $mui.Button.Next 1
-	${Else}
-		EnableWindow $mui.Button.Next 0
-	${EndIf}
-	Pop $1
-	Pop $0
-FunctionEnd
-
 Function OptionsPageLeave
 	${NSD_GetText} $TSselector_DL $TS_toInstall
 	${NSD_GetText} $InstDir_DR $INSTDIR
@@ -376,7 +357,7 @@ FunctionEnd
 
 Function FinishPageShow ; добавляем свои чекбоксы на финишную страницу
 	Push $0
-	
+
 	Var /GLOBAL _Autostart_
 	${NSD_CreateCheckbox} 120u 104u 100% 10u "$(_LAUNCH_ON_LOGON_)"
 	Pop $_Autostart_
@@ -388,9 +369,9 @@ Function FinishPageShow ; добавляем свои чекбоксы на фи
 	Pop $_Shortcut_
 	${NSD_SetState} $_Shortcut_ ${BST_CHECKED}
 	SetCtlColors $_Shortcut_ "" "ffffff"
-	
+
 !ifdef ADMINMODE
-	
+
 	Var /GLOBAL _Autoupdate_
 	${NSD_CreateCheckbox} 120u 131u 100% 10u "$(_AUTOUPDATE_)"
 	Pop $_Autoupdate_
@@ -412,15 +393,15 @@ Function FinishPageShow ; добавляем свои чекбоксы на фи
 	; чекбокс автообновления не показываем в WinXP или при отсутствии админских прав
 	UserInfo::GetAccountType
 	Pop $0
-	${If} $0 == "admin"	
+	${If} $0 == "admin"
 	${AndIf} ${AtLeastWin7}
 		${NSD_SetState} $_Autoupdate_ ${AUTOUPDATESTATE}
 	${Else}
 		ShowWindow $_Autoupdate_ ${SW_HIDE}
 	${EndIf}
-	
+
 !endif
-	
+
 	Var /GLOBAL _Chrome_
 	${NSD_CreateRadioButton} 120u 163u 100% 10u "$(_CHROME_EXTENSION_) (web)"
 	Pop $_Chrome_
@@ -429,15 +410,15 @@ Function FinishPageShow ; добавляем свои чекбоксы на фи
 	Var /GLOBAL _Firefox_
 	${NSD_CreateRadioButton} 120u 175u 100% 10u "$(_FIREFOX_EXTENSION_) (web)"
 	Pop $_Firefox_
-	SetCtlColors $_Firefox_CHB "" "ffffff"	
-	
+	SetCtlColors $_Firefox_CHB "" "ffffff"
+
 	Pop $0
 FunctionEnd
 
 Function FinishPageLeave ; обрабатываем финишные чекбоксы
-	Push $0	
+	Push $0
 	HideWindow
-	
+
 	${NSD_GetState} $mui.FinishPage.Run $RunOnComplete
 
 	${NSD_GetState} $_Autostart_ $0
@@ -455,7 +436,7 @@ Function FinishPageLeave ; обрабатываем финишные чекбо�
 	${EndIf}
 
 !ifdef ADMINMODE
-	
+
 	!insertmacro AutoupdateTaskRemove
 	${NSD_GetState} $_Autoupdate_ $0
 	${If} $0 == ${BST_CHECKED}
@@ -466,7 +447,7 @@ Function FinishPageLeave ; обрабатываем финишные чекбо�
 	${If} $0 == ${BST_CHECKED}
 		!insertmacro fwRuleCreate "$INSTDIR\$TSexe" $0
 	${EndIf}
-	
+
 !endif
 
 	${NSD_GetState} $_Chrome_ $0
@@ -478,7 +459,7 @@ Function FinishPageLeave ; обрабатываем финишные чекбо�
 	${If} $0 == ${BST_CHECKED}
 		ExecShell "open" "https://addons.mozilla.org/firefox/addon/torrserver-adder"
 	${EndIf}
-	
+
 	Pop $0
 FunctionEnd
 
@@ -486,7 +467,7 @@ FunctionEnd
 	CreateShortCut "${SHORTCUTSDIR}\tsl.exe ${arg}.lnk" "$INSTDIR\tsl.exe" "${arg}"
 !macroend
 
-!macro commonInstallSection
+!macro preInstall
 	Push  $0
 	SetOutPath "$INSTDIR"
 	AccessControl::GrantOnFile  "$INSTDIR" "(S-1-1-0)" "FullAccess"	; права на папку торрсервера все для всех
@@ -495,10 +476,15 @@ FunctionEnd
  	RMDir /r "$INSTDIR\Setup"								; удаляем неиспользуемые остатки от v.2
 	DeleteRegValue HKCU "${REG_UNINST_SUBKEY}" "TSLVersion"	; -//-, версию tsl больше не храним, всегда ставим последнюю при обновлении TS
 	Delete "$INSTDIR\1"										; удаляем логи от ExecDos:: которые могли появится в v.2
+	SetOverwrite on
+	Pop  $0
+!macroend
+
+!macro postInstall
+
 	; SetOverwrite off       									; создаем базы если они еще не существуют
 	; File "files\db\torrserver.db"								; базы с отключенным μTP и предзагрузкой 20/32мб
 	; File "files\db\config.db"
-	SetOverwrite on
 	WriteUninstaller "$INSTDIR\${UNINSTALLER}"				; деинсталлятор
 
 	; создаем записи в реестре
@@ -537,8 +523,9 @@ FunctionEnd
 	CreateShortCut "$SMPROGRAMS\${APPNAME}\$(_UPDATE_) ${APPNAME}.lnk" "$INSTDIR\${ONLINE_INSTALLER}" "/SkipWelcome"
 	CreateShortCut "$SMPROGRAMS\${APPNAME}\$(_UNINSTALL_) ${APPNAME}.lnk" "$INSTDIR\${UNINSTALLER}"
 	; CreateShortCut "$SMPROGRAMS\${APPNAME}\$(_LINKS_).lnk" "${LINKSDIR}"
-	Pop  $0
+
 !macroend
+
 
 Section Uninstall
 	; стопорим сервер(если запущен)
@@ -586,12 +573,12 @@ Section Abort Abort_ID
 SectionEnd
 
 Function .onInit
-	Push $0	
+	Push $0
 /*
  	${IfNot} ${AtLeastWin7}	; NSxfer под XP с github работать не будет (tls 1.2)
 		MessageBox MB_OK|MB_ICONSTOP "$(_REQUIRES_WIN7_)" /SD IDOK
 		Quit
-	${EndIf} 
+	${EndIf}
 */
 	;
 	!insertmacro CheckMutex	; проверка уже запущенного экземпляра установщика
@@ -652,10 +639,10 @@ LangString _FIREFOX_EXTENSION_ ${LANG_ENGLISH} "Firefox Extensions"
 
 	LangString _ADD_FWRULE_EXCEPTIONS_ ${LANG_RUSSIAN} "Добавить в исключения брандмауэра" ; $(_ADD_FWRULE_EXCEPTIONS_)
 	LangString _ADD_FWRULE_EXCEPTIONS_ ${LANG_ENGLISH} "Add to firewall exceptions"
-	
+
 	LangString _AUTOUPDATE_ ${LANG_RUSSIAN} "Автообновление" ; $(_AUTOUPDATE_)
 	LangString _AUTOUPDATE_ ${LANG_ENGLISH} "Autoupdate"
-	
+
 !endif
 
 LangString _LAUNCH_ON_LOGON_ ${LANG_RUSSIAN} "Запускать при входе в Windows" ; $(_LAUNCH_ON_LOGON_)
