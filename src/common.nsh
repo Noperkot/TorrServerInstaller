@@ -1,305 +1,506 @@
-﻿Unicode True
+Unicode True
 !addplugindir /x86-unicode "files/Plugins/x86-unicode"
-!include x64.nsh ; ${RunningX64}
-!include FileFunc.nsh ; ${GetOptions}
-!include StrFunc.nsh ; ${StrRep}
+!include WinVer.nsh		; ${AtLeastWin7}
+!include x64.nsh		; ${RunningX64}
+!include FileFunc.nsh	; ${GetOptions}
+!include StrFunc.nsh	; ${StrRep}
 ${StrRep}
 
-; ------------------------- Defines -------------------------------------
-!define INSTALLER_VERSION "2.0.0.0"
-!define COPYRIGHT_STR "Copyright © 2023 ${AUTHORS}"
+; -------------------------- Defines -------------------------------------
+!define ADMINMODE		; будут доступны функции брандмауэра и автообновления
+
+!define VERSION "3.0.1"
+!system  "python build.py"
+!include "build.nsh"
+!ifndef BUILD
+	!define BUILD "0"
+!endif
+!ifndef PRODUCT_VERSION
+	!define PRODUCT_VERSION "${VERSION}"
+!endif
+!ifndef OUTDIR
+	!define OUTDIR "..\build"
+!endif
+
 !define APPNAME "TorrServer"
-!define TSLEXE "tsl.exe"
-!define OUTDIR "../build"
 !define PRODUCT_PUBLISHER "Noperkot"
-!define UNINST "Uninstall"
+!define COPYRIGHT "${AUTHORS} © 2024"
 !define REG_UNINST_SUBKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPNAME}"
 !define REG_RUN_SUBKEY "Software\Microsoft\Windows\CurrentVersion\Run"
-!define INSTALLICON "files/icons/favicon_16-24-32-48(8-32colors).ico"
-!define UNINSTALLICON "files/icons/faviconX_16-24-32-48(8-32colors).ico"
-!define SETUPDIR "$INSTDIR\Setup"
+!define ICONSDIR "files\icons"
+!define UNINSTALLICON "uninst.ico"
+!define TS32EXE "TorrServer-windows-386.exe"
+!define TS64EXE "TorrServer-windows-amd64.exe"
+!define ONLINE_INSTALLER "TorrServer_Setup.exe"
+!define UNINSTALLER "Uninstall.exe"
 !define LINKSDIR "$INSTDIR\Links"
 !define SHORTCUTSDIR "$INSTDIR\Shortcuts"
-!define ONLINE_INSTALLER "TorrServer_Setup.exe"
+!define AUTOUPDATE_TASK "${APPNAME}Updater"
 
-; ------------------------- Main settings -------------------------------
+; -------------------------- Variables -----------------------------------
+Var TempDir
+Var AbortMessage
+Var TS_Installed
+Var	TS_toInstall
+Var TSselector_DL
+Var	TSexe
+Var RunOnComplete
+
+; -------------------------- Main settings -------------------------------
 Name "${APPNAME}"
 Caption "${CAPTION}"
 UninstallCaption "${APPNAME} Uninstaller"
 InstallDir "$APPDATA\${APPNAME}"
 InstallDirRegKey HKCU "Software\${APPNAME}" ""
 OutFile "${OUTDIR}/${INSTALLER}"
-SetCompressor LZMA
-; SetCompressor BZip2
-; SetCompress off
+; SetCompressor lzma ; zlib bzip2 lzma off	; lzma лучше пакует(~10%), но VirusTotal благосклонней относится к дефолтному zlib???
+; ManifestSupportedOS none					;
 ManifestDPIAware true
-RequestExecutionLevel user
+!ifdef ADMINMODE
+	RequestExecutionLevel highest
+!else
+	RequestExecutionLevel user
+!endif
 AllowRootDirInstall true
-BrandingText " " ; убираем из окна инсталлятора строку строку "Nullsoft Install System v3.08"
-SpaceTexts none ; убираем требуемое место на диске
+BrandingText " "							; убираем из окна инсталлятора строку строку "Nullsoft Install System vX.XX"
+SpaceTexts none 							; убираем требуемое место на диске
 ; ShowInstDetails show
+; ShowInstDetails nevershow
 ; ShowUnInstDetails show
 
-; ------------------------- Variables -----------------------------------
-Var	TorrServer_ver
-Var	TSL_ver
-Var installedTorrServer_ver
-Var installedTSL_ver
-Var alreadyInstalled
-Var versionsText
-Var AutorunCheckbox
-Var DesktopShortcutCheckbox
-Var ChromeCheckbox
-Var FirefoxCheckbox
-
-; ------------------------- MUI settings -------------------------------
-!include "MUI2.nsh"
-!define MUI_ICON ${INSTALLICON}
-!define MUI_UNICON ${UNINSTALLICON}
+; --------------------------- MUI settings -------------------------------
+!include MUI2.nsh
+!define MUI_ICON "${ICONSDIR}\${INSTALLICON}"
+!define MUI_UNICON "${ICONSDIR}\${UNINSTALLICON}"
 ; !define MUI_ABORTWARNING
-
-!define MUI_PAGE_CUSTOMFUNCTION_PRE fWelcomePre
-!insertmacro MUI_PAGE_WELCOME
-
-!define MUI_PAGE_CUSTOMFUNCTION_PRE fDirectoryPre
-!define MUI_PAGE_CUSTOMFUNCTION_SHOW fDirectoryShow ; проверка существующей установки. если существует то пригасим выбор директории
-!define MUI_DIRECTORYPAGE_TEXT_TOP $versionsText
-!insertmacro MUI_PAGE_DIRECTORY
-
-!insertmacro MUI_PAGE_INSTFILES
-
 ; !define MUI_FINISHPAGE_NOAUTOCLOSE
-!define MUI_FINISHPAGE_RUN "$INSTDIR\${TSLEXE}"
-!define MUI_PAGE_CUSTOMFUNCTION_SHOW fFinishShow ; генерируем дополнительные чекбоксы
-!define MUI_PAGE_CUSTOMFUNCTION_LEAVE fFinishLeave ; выполняем дополнительные функции
-!insertmacro MUI_PAGE_FINISH
+;
+!define MUI_PAGE_CUSTOMFUNCTION_PRE WelcomePagePre		; проверка ключа /SkipWelcome
+!insertmacro MUI_PAGE_WELCOME							; страница приветствия
+!insertmacro GetVersions								; получаем список версий ТС
+Page Custom OptionsPageCreate OptionsPageLeave			; страница выбора верси и пути установки
+!insertmacro MUI_PAGE_INSTFILES							; собственно сама установка
+!define MUI_FINISHPAGE_RUN								; галка запуска на финишной странице
+!define MUI_PAGE_CUSTOMFUNCTION_SHOW FinishPageShow		; генерируем дополнительные чекбоксы
+!define MUI_PAGE_CUSTOMFUNCTION_LEAVE FinishPageLeave	; обрабатываем чекбоксы после нажатия кнопки "Готово"
+!define MUI_FINISHPAGE_NOREBOOTSUPPORT					; без поддержки ребута, чуть снижает вес(~300байт)
+!insertmacro MUI_PAGE_FINISH							; финишная страница с чекбоксами
 
+; ---------------------------- MUI uninstall -----------------------------
 !insertmacro MUI_UNPAGE_CONFIRM
 !insertmacro MUI_UNPAGE_INSTFILES
 
-; Set languages (first is default language)
+; --------------- Set languages (first is default language) --------------
 !insertmacro MUI_LANGUAGE "English"
 !insertmacro MUI_LANGUAGE "Russian"
-!insertmacro MUI_RESERVEFILE_LANGDLL
 
 ; -------------------------- Version Information -------------------------
-VIProductVersion "${INSTALLER_VERSION}"
-VIAddVersionKey  /LANG=${LANG_ENGLISH} "ProductName" "${CAPTION}"
-VIAddVersionKey  /LANG=${LANG_ENGLISH} "CompanyName" "Noperkot"
-VIAddVersionKey  /LANG=${LANG_ENGLISH} "LegalCopyright" "${COPYRIGHT_STR}"
+VIProductVersion "${VERSION}.0"
+VIFileVersion    "${VERSION}.${BUILD}"
+VIAddVersionKey  /LANG=${LANG_ENGLISH} "FileVersion" "${VERSION}.${BUILD}"
 VIAddVersionKey  /LANG=${LANG_ENGLISH} "FileDescription" "${CAPTION}"
-VIAddVersionKey  /LANG=${LANG_ENGLISH} "FileVersion" "${INSTALLER_VERSION}"
 VIAddVersionKey  /LANG=${LANG_ENGLISH} "ProductVersion" "${PRODUCT_VERSION}"
-
+VIAddVersionKey  /LANG=${LANG_ENGLISH} "ProductName" "${APPNAME} Installer"
+VIAddVersionKey  /LANG=${LANG_ENGLISH} "LegalCopyright" "${COPYRIGHT}"
+VIAddVersionKey  /LANG=${LANG_ENGLISH} "NSIS" "${NSIS_VERSION} (${OS})"
+;
+; VIAddVersionKey  /LANG=${LANG_ENGLISH} "OriginalFilename" "${INSTALLER}" ;
+; VIAddVersionKey  /LANG=${LANG_ENGLISH} "CompanyName" "${PRODUCT_PUBLISHER}"
+; VIAddVersionKey  /LANG=${LANG_ENGLISH} "LegalTrademarks" ""
+; VIAddVersionKey  /LANG=${LANG_ENGLISH} "InternalName" "TorrServer_Setup"
+; VIAddVersionKey  /LANG=${LANG_ENGLISH} "Comments" "TorrServer is a program that allows users to view torrents online without the need for preliminary file downloading."
 ; ------------------------------------------------------------------------
 
-!macro SHARED prefix ; Общие функции, используемые как в инсталляторе, так и в деинсталляторе
-	Function ${prefix}CloseTS ; Гасим торрсервер запущенный через tsl.exe
-		FindWindow $0 "TorrServerLauncher"
-		SendMessage $0 ${WM_DESTROY} 0 0
-		Sleep 500
-	FunctionEnd
-!macroend
-!insertmacro SHARED ""
-!insertmacro SHARED "un."
-
-!macro exit message
-	MessageBox MB_OK|MB_ICONSTOP "${message}"
-	Quit
+!macro CloseTS hwnd			; Гасим торрсервер запущенный через tsl.exe
+	FindWindow ${hwnd} "TorrServerLauncher"
+	${IfNot} ${hwnd} == 0
+		SendMessage ${hwnd} ${WM_DESTROY} 0 0
+		Sleep 100
+	${EndIf}
 !macroend
 
-!macro setupShortcut ver
-	CreateShortCut "${SETUPDIR}\$(_OLD_VERSIONS_)\${APPNAME}_${ver}_Setup.lnk" "$INSTDIR\${ONLINE_INSTALLER}" "/V ${ver}"
-!macroend
-
-!macro tslShortcut arg
-	CreateShortCut "${SHORTCUTSDIR}\${TSLEXE} ${arg}.lnk" "$INSTDIR\${TSLEXE}" "${arg}"
-!macroend
-
-Function fWelcomePre
-	; проверка уже запущенного экземпляра
+!macro CheckMutex ; проверка уже запущенного экземпляра установщика
+	Push $0
 	System::Call 'kernel32::CreateMutex(i 0, i 0, t "TorrServerSetup") i .r1 ?e'
 	Pop $0
 	${IfNot} $0 == 0
-		!insertmacro exit "$(_ALREADY_RUNNING_)"
+		MessageBox MB_OK|MB_ICONSTOP "$(_ALREADY_RUNNING_)" /SD IDOK
+		Quit
 	${EndIf}
+	Pop $0
+!macroend
 
-	; пропуск страницы WELCOME
+!macro WriteLn s
+	FileWriteUTF16LE $0 `${s}$\r$\n`
+!macroend
+
+!define WriteLn "!insertmacro WriteLn"
+
+!macro AutoupdateTaskCreate
+	Push $0
+	Push $1
+	${Do} ; Генерируем случайное имя xml файла в темпе. VT не нравится(CRITICAL) ".tmp"(расширение $PLUGINSDIR) в пути .xml файла. Имя сгенерированное GetTempFileName ему тоже не нравится.
+		Crypto::RNG
+		Pop $1							; $1 now contains 100 bytes of random data in hex format
+		StrCpy $1 "$1" 32				; берем первые 32 символа
+		StrCpy $1 "$TEMP\$1.XML"
+		; StrCpy $1 "$PLUGINSDIR\$1.XML" ; !!! VT (CRITICAL) !!!
+		${IfNot} ${FileExists} "$1"
+			${Break}
+		${EndIf}
+	${Loop}
 	ClearErrors
-	${GetOptions} $CMDLINE "/SkipWelcome" $0
+	FileOpen $0 $1 w
+	${IfNot} ${Errors}
+		;write UTF-16LE BOM
+		FileWriteByte $0 "255"
+		FileWriteByte $0 "254"
+		;
+ 		${WriteLn} '<?xml version="1.0" encoding="UTF-16"?>'
+		${WriteLn} '<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">'
+		${WriteLn} '  <RegistrationInfo>'
+		${WriteLn} '    <Description>$(_TASK_DESCRIPTION_)</Description>'
+		${WriteLn} '  </RegistrationInfo>'
+		${WriteLn} '  <Triggers>'
+		${WriteLn} '    <CalendarTrigger>'
+		${WriteLn} '      <StartBoundary>2000-01-01T06:00:00</StartBoundary>'
+		${WriteLn} '      <ScheduleByDay>'
+		${WriteLn} '        <DaysInterval>1</DaysInterval>'
+		${WriteLn} '      </ScheduleByDay>'
+		; ${WriteLn} '      <Repetition>' ; !!!!!!!!!!!!!!!!!!! ежечасная проверка обновлений. в релизе убрать !!!!!!!!!!!!!!!!!!!!!
+		; ${WriteLn} '        <Interval>PT1H</Interval>'
+		; ${WriteLn} '        <Duration>P1D</Duration>'
+		; ${WriteLn} '        <StopAtDurationEnd>false</StopAtDurationEnd>'
+		; ${WriteLn} '      </Repetition>'
+		${WriteLn} '      <Enabled>true</Enabled>'
+		${WriteLn} '    </CalendarTrigger>'
+		${WriteLn} '  </Triggers>'
+		${WriteLn} '  <Principals>'
+		${WriteLn} '    <Principal id="Author">'
+		${WriteLn} '      <RunLevel>HighestAvailable</RunLevel>'
+		${WriteLn} '    </Principal>'
+		${WriteLn} '  </Principals>'
+		${WriteLn} '  <Settings>'
+		${WriteLn} '    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>'
+		${WriteLn} '    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>'
+		${WriteLn} '    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>'
+		${WriteLn} '    <AllowHardTerminate>true</AllowHardTerminate>'
+		${WriteLn} '    <StartWhenAvailable>true</StartWhenAvailable>'
+		${WriteLn} '    <RunOnlyIfNetworkAvailable>true</RunOnlyIfNetworkAvailable>'
+		${WriteLn} '    <IdleSettings>'
+		${WriteLn} '      <StopOnIdleEnd>false</StopOnIdleEnd>'
+		${WriteLn} '      <RestartOnIdle>false</RestartOnIdle>'
+		${WriteLn} '    </IdleSettings>'
+		${WriteLn} '    <AllowStartOnDemand>true</AllowStartOnDemand>'
+		${WriteLn} '    <Enabled>true</Enabled>'
+		${WriteLn} '    <Hidden>false</Hidden>'
+		${WriteLn} '    <RunOnlyIfIdle>false</RunOnlyIfIdle>'
+		${WriteLn} '    <WakeToRun>false</WakeToRun>'
+		${WriteLn} '    <ExecutionTimeLimit>PT1H</ExecutionTimeLimit>'
+		${WriteLn} '    <Priority>7</Priority>'
+		${WriteLn} '  </Settings>'
+		${WriteLn} '  <Actions Context="Author">'
+		${WriteLn} '    <Exec>'
+		${WriteLn} '      <Command>"$INSTDIR\${ONLINE_INSTALLER}"</Command>'
+		${WriteLn} '      <Arguments>/S</Arguments>'
+		${WriteLn} '    </Exec>'
+		${WriteLn} '  </Actions>'
+		${WriteLn} '</Task>'
+		FileClose $0
+		ExecShellWait '' 'schtasks' '/create /tn "${AUTOUPDATE_TASK}" /xml "$1" /f' SW_HIDE
+		; ExecDos::exec 'schtasks /create /tn "${AUTOUPDATE_TASK}" /xml "$1" /f' '' ''
+		; Pop $0
+	${endIf}
+	Delete /REBOOTOK $1
+	Pop $1
+	Pop $0
+!macroend
+
+!macro AutoupdateTaskRemove
+	ExecShell '' 'schtasks' '/delete /tn "${AUTOUPDATE_TASK}" /f' SW_HIDE
+	; ExecDos::exec 'schtasks /delete /tn "${AUTOUPDATE_TASK}" /f' '' ''
+	; Pop $0
+!macroend
+
+!macro fwRuleCreate exepath result
+	; /* плагин nsisFirewallW разрешает только частное подключение, для общего все равно всплывает запрос брандмауэра????? */
+	; nsisFirewallW::AddAuthorizedApplication `${exepath}` "${APPNAME}"
+	; Pop ${result} ; 0-success
+
+	ExecDos::exec 'netsh advfirewall firewall add rule name="${APPNAME}" dir=in action=allow program="${exepath}" enable=yes profile=public,private' '' ''
+	Pop ${result}
+!macroend
+
+!macro fwRuleRemove exepath result
+	; nsisFirewallW::RemoveAuthorizedApplication `${exepath}`
+	; Pop ${result} ; 0-success
+
+	UserInfo::GetAccountType
+	Pop ${result}
+	${If} ${result} == "admin"
+		ExecDos::exec 'netsh advfirewall firewall delete rule name=all program="${exepath}"' '' ''
+		Pop ${result} ; 0 - правило успешно удалено, 1 - такого правила не было
+		${If} ${result} == 1
+			StrCpy ${result} 0
+		${EndIf}
+	${EndIf}
+!macroend
+
+Function _abort_
+	Pop $0
+	DetailPrint "$0"
+	DetailPrint "$(_INSTALLATION_FAILED_)"
+	SetDetailsView show
+	StrCpy $AbortMessage $0
+	Abort
+FunctionEnd
+
+!macro _abort_ msg
+	Push `${msg}`
+	Call _abort_
+!macroend
+
+!define _abort_ "!insertmacro _abort_"
+
+Function WelcomePagePre
+	Push $0
+	ClearErrors
+	${GetOptions} $CMDLINE "/SkipWelcome" $0	; пропуск страницы WELCOME
 	${IfNot} ${Errors}
 		Abort
 	${EndIf}
+	${NSD_SetText} $mui.Button.Next "$(^NextBtn)"	; "Далее" вместо "Установить"
+	Pop $0
 FunctionEnd
 
-Function fDirectoryPre
-	;гасим кнопку "Назад"
-	GetDlgItem $0 $HWNDPARENT 3
-	EnableWindow $0 0
+Function OptionsPageCreate
+	Push $0
 
-	; получаем версии устанавливаемых компонентов
-	!insertmacro getVersions
+	!insertmacro MUI_HEADER_TEXT "$(_CUSTOM_PAGE_TITLE_)" "$(^ComponentsText)"
 
-	; получаем версии уже устанновленных компонентов
-	ReadRegStr $installedTorrServer_ver HKCU "${REG_UNINST_SUBKEY}" "DisplayVersion"
-	ReadRegStr $installedTSL_ver HKCU "${REG_UNINST_SUBKEY}" "TSLVersion"
+	Var /GLOBAL SelVer_DLG
+	Var /GLOBAL TSupd_L
+	Var /GLOBAL InstallOptionsText
 
-	; проверка существующей установки
-	ClearErrors
-	ReadRegStr $0 HKCU "Software\${APPNAME}" ""
-	${IfNot} ${Errors}
-		${StrRep} $0 $0 '"' ''
-		StrCpy $INSTDIR $0
-	${EndIf}
-	${If} ${FileExists} "$INSTDIR\${UNINST}.exe" ; Смотрим есть ли по этому пути файл Uninstall.exe
-		StrCpy $alreadyInstalled 1
+    nsDialogs::Create 1018
+    Pop $SelVer_DLG
+    ${If} $SelVer_DLG == error
+		${_abort_} "$(_UNEXPECTED_ERROR_)"
+    ${EndIf}
+
+	; фрейм TorrServer
+	${NSD_CreateGroupBox} 25% 30u 50% 44u "TorrServer"
+	${NSD_CreateDropList} 35% 47u 30% 12u ""
+    Pop $TSselector_DL
+	EnableWindow $TSselector_DL 0
+	nsDialogs::CreateControl STATIC ${WS_CHILD}|${SS_RIGHT}|${SS_CENTERIMAGE} 0 35% 35u 30% 12u "$(_NEW_VERSION_)"
+	Pop $TSupd_L
+	SetCtlColors $TSupd_L 0x0066CC "transparent"
+	nsDialogs::CreateControl STATIC ${WS_CHILD}|${SS_RIGHT}|${WS_VISIBLE}|${WS_DISABLED} 0 35% 60u 30% 12u "$TS_installed"
+
+	; строка сообщений под фреймом
+	nsDialogs::CreateControl STATIC ${WS_CHILD}|${SS_CENTER}|${SS_CENTERIMAGE}|${WS_VISIBLE}|${WS_DISABLED} 0 0 80u 100% 12u ""
+	Pop $InstallOptionsText
+
+	; выбор пути установки
+	${NSD_CreateGroupBox} 0% 105u 100% 35u "$(^DirSubText)"
+	Var /GLOBAL InstDir_DR
+	${NSD_CreateDirRequest} 5% 119u 70% 12u "$INSTDIR"
+	Pop $InstDir_DR
+	EnableWindow $InstDir_DR 0
+	${NSD_CreateBrowseButton} 78% 118u 17% 14u "$(^BrowseBtn)"
+	Pop $0
+	${NSD_OnClick} $0 OnDirBrowse
+
+	${If} ${FileExists} "$INSTDIR\${UNINSTALLER}"						; считаем что TS уже установлен если по этому пути есть файл Uninstall.exe
+		EnableWindow $0 0												; гасим кнопку выбора пути
+		${NSD_SetText} $mui.Header.SubText  "$(_REINSTALL_SUBTEXT_)"	; сообщаем что это переустановка
 	${EndIf}
 
-	; формируем текст на странице версий
-	StrCpy $0 ""
-	${IfNot} $installedTorrServer_ver == $TorrServer_ver
-		StrCpy $0 "$0TorrServer $TorrServer_ver$\n$\n"
-	${EndIf}
-	${IfNot} $installedTSL_ver == $TSL_ver
-		StrCpy $0 "$0TorrServer Launcher $TSL_ver"
-	${EndIf}
-	${If} $0 == ""
-		StrCpy $versionsText "$(_NO_UPDATES_FOUND_)"
-	${Else}
-		${If} $alreadyInstalled == 1
-			StrCpy $versionsText "$(_UPDATES_AVAILABLE_)"
-		${Else}
-			StrCpy $versionsText "$(_TO_INSTALL_)"
+	Call fillTSselector
+	${NSD_CB_SelectString} $TSselector_DL $TS_toInstall					; выбираем из списка устанавливаемую версию
+
+	; проверяем есть ли обновление
+	Var /GLOBAL origNextFont
+	SendMessage $mui.Button.Next ${WM_GETFONT} 0 0 $origNextFont		; сохраняем шрифт кнопки "далее"
+	${If} $TS_Installed != ""											; TS установлен
+		${If} $TS_toInstall == $TS_Installed							; обновлений нет
+			${NSD_SetText} $InstallOptionsText "$(_NO_UPDATES_FOUND_)"	; сообщаем об этом в нижней строке
+			CreateFont  $0 "Microsoft Sans Serif" "6"					; Уменьшаем шрифт кнопки "далее" чтобы влезло по ширине
+			SendMessage $mui.Button.Next ${WM_SETFONT} $0 0				;
+			${NSD_SetText} $mui.Button.Next "$(_REINSTALL_)"			; Меняем текст кнопки "далее" на "переустановить"
+		${Else}															; есть обновление
+			ShowWindow $TSupd_L ${SW_SHOW}
 		${EndIf}
 	${EndIf}
-	StrCpy $versionsText "———  $versionsText  ———$\n$\n$\n$0"
+
+    nsDialogs::Show
+	Pop $0
 FunctionEnd
 
+Function OnDirBrowse
+	Push $0
+	${NSD_GetText} $InstDir_DR $0
+	nsDialogs::SelectFolderDialog "$(^DirBrowseText)" $0
+	Pop $0
+	${If} $0 != "error"
+		${NSD_SetText} $InstDir_DR $0
+	${EndIf}
+	Pop $0
+FunctionEnd
 
-Function fDirectoryShow
-	;меняем шрифт в окне версий
-	FindWindow $2 "#32770" "" $HWNDPARENT
-	GetDlgItem $0 $2 1006
-	CreateFont $R0 "Microsoft Sans Serif" "9" "700"
-	${If} $installedTorrServer_ver == $TorrServer_ver
-	${AndIf} $installedTSL_ver == $TSL_ver
-		SetCtlColors $0 0x6D6D6D "transparent"
+Function OptionsPageLeave
+	${NSD_GetText} $TSselector_DL $TS_toInstall
+	${NSD_GetText} $InstDir_DR $INSTDIR
+	SendMessage $mui.Button.Next ${WM_SETFONT} $origNextFont 0 ; восстанавливаем шрифт кнопки "далее"
+FunctionEnd
+
+Function FinishPageShow ; добавляем свои чекбоксы на финишную страницу
+	Push $0
+
+	Var /GLOBAL _Autostart_
+	${NSD_CreateCheckbox} 120u 104u 100% 10u "$(_LAUNCH_ON_LOGON_)"
+	Pop $_Autostart_
+	${NSD_SetState} $_Autostart_ ${BST_CHECKED}
+	SetCtlColors $_Autostart_ "" "ffffff"
+
+	Var /GLOBAL _Shortcut_
+	${NSD_CreateCheckbox} 120u 117u 100% 10u "$(_DESKTOP_SHORTCUT_)"
+	Pop $_Shortcut_
+	${NSD_SetState} $_Shortcut_ ${BST_CHECKED}
+	SetCtlColors $_Shortcut_ "" "ffffff"
+
+!ifdef ADMINMODE
+
+	Var /GLOBAL _Autoupdate_
+	${NSD_CreateCheckbox} 120u 131u 100% 10u "$(_AUTOUPDATE_)"
+	Pop $_Autoupdate_
+	SetCtlColors $_Autoupdate_ "" "ffffff"
+
+	Var /GLOBAL _FWrule_
+	${NSD_CreateCheckbox} 120u 145u 100% 10u "$(_ADD_FWRULE_EXCEPTIONS_)"
+	Pop $_FWrule_
+	SetCtlColors $_FWrule_ "" "ffffff"
+
+	; проверка доступности брандмауэра удалением правила. если доступен - выставляем галку, если нет - скрываем чекбокс
+	!insertmacro fwRuleRemove "$INSTDIR\$TSexe" $0
+	${If} $0 == 0
+		${NSD_SetState} $_FWrule_ ${BST_CHECKED}
 	${Else}
-		SetCtlColors $0 0x0066CC "transparent"
+		ShowWindow $_FWrule_ ${SW_HIDE}
 	${EndIf}
-	SendMessage $0 ${WM_SETFONT} $R0 0
 
-	; если TS уже установлен
-	${If} $alreadyInstalled == 1
-		FindWindow $R1 "#32770" "" $HWNDPARENT
-		GetDlgItem $R2 $R1 1019 ; гасим строку с путем
-		EnableWindow $R2 0
-		GetDlgItem $R2 $R1 1001 ; гасим кнопку выбора пути
-		EnableWindow $R2 0
-		; сообщаем что это переустановка
-		SendMessage $mui.Header.Text ${WM_SETTEXT} 0 "STR:$(_REINSTALL_TEXT_)"
-		SendMessage $mui.Header.SubText ${WM_SETTEXT} 0 "STR:$(_REINSTALL_SUBTEXT_)"
+	; чекбокс автообновления не показываем в WinXP или при отсутствии админских прав
+	UserInfo::GetAccountType
+	Pop $0
+	${If} $0 == "admin"
+	${AndIf} ${AtLeastWin7}
+		${NSD_SetState} $_Autoupdate_ ${AUTOUPDATESTATE}
+	${Else}
+		ShowWindow $_Autoupdate_ ${SW_HIDE}
 	${EndIf}
+
+!endif
+
+	Var /GLOBAL _Chrome_
+	${NSD_CreateRadioButton} 120u 163u 100% 10u "$(_CHROME_EXTENSION_) (web)"
+	Pop $_Chrome_
+	SetCtlColors $_Chrome_CHB "" "ffffff"
+
+	Var /GLOBAL _Firefox_
+	${NSD_CreateRadioButton} 120u 175u 100% 10u "$(_FIREFOX_EXTENSION_) (web)"
+	Pop $_Firefox_
+	SetCtlColors $_Firefox_CHB "" "ffffff"
+
+	Pop $0
 FunctionEnd
 
-Function fFinishShow ; добавляем свои чекбоксы на финишную страницу
-
-	${NSD_CreateCheckbox} 120u 110u 100% 10u "&$(_LAUNCH_ON_LOGON_)"
-	Pop $AutorunCheckbox
-	${NSD_SetState} $AutorunCheckbox 1
-	SetCtlColors $AutorunCheckbox "" "ffffff"
-
-	${NSD_CreateCheckbox} 120u 130u 100% 10u "&$(_DESKTOP_SHORTCUT_)"
-	Pop $DesktopShortcutCheckbox
-	${NSD_SetState} $DesktopShortcutCheckbox 1
-	SetCtlColors $DesktopShortcutCheckbox "" "ffffff"
-
-	${NSD_CreateCheckbox} 120u 155u 100% 10u "&$(_EXTENSION_FOR_) Chrome (web)"
-	Pop $ChromeCheckbox
-	${NSD_SetState} $ChromeCheckbox 0
-	SetCtlColors $ChromeCheckbox "" "ffffff"
-
-	${NSD_CreateCheckbox} 120u 175u 100% 10u "&$(_EXTENSION_FOR_) Firefox (web)"
-	Pop $FirefoxCheckbox
-	${NSD_SetState} $FirefoxCheckbox 0
-	SetCtlColors $FirefoxCheckbox "" "ffffff"
-
-FunctionEnd
-
-Function fFinishLeave ; проверяем чекбоксы на финальной странице по кнопке "Готово"
+Function FinishPageLeave ; обрабатываем финишные чекбоксы
+	Push $0
 	HideWindow
 
-	${NSD_GetState} $mui.FinishPage.Run $0 ; перед стартом убиваем все левые процессы торрсервера
-	${If} $0 <> 0
-		KillProcDLL::KillProc "TorrServer-windows-386.exe"
-		KillProcDLL::KillProc "TorrServer-windows-amd64.exe"
-		KillProcDLL::KillProc "TorrServer.exe"
+	${NSD_GetState} $mui.FinishPage.Run $RunOnComplete
+
+	${NSD_GetState} $_Autostart_ $0
+	${If} $0 == ${BST_CHECKED}
+		WriteRegStr HKCU "${REG_RUN_SUBKEY}" "${APPNAME}" '"$INSTDIR\tsl.exe" --silent'
+	${Else}
+		DeleteRegValue HKCU "${REG_RUN_SUBKEY}" "${APPNAME}"
 	${EndIf}
 
-	${NSD_GetState} $AutorunCheckbox $0
-	${If} $0 <> 0
-		WriteRegStr HKCU "${REG_RUN_SUBKEY}" "${APPNAME}" '"$INSTDIR\${TSLEXE}" --silent'
+	${NSD_GetState} $_Shortcut_ $0
+	${If} $0 == ${BST_CHECKED}
+		CreateShortCut "$DESKTOP\${APPNAME}.lnk" '"$INSTDIR\tsl.exe"'
+	${Else}
+		Delete "$DESKTOP\${APPNAME}.lnk"
 	${EndIf}
 
-	${NSD_GetState} $DesktopShortcutCheckbox $0
-	${If} $0 <> 0
-		CreateShortCut "$DESKTOP\${APPNAME}.lnk" '"$INSTDIR\${TSLEXE}"'
+!ifdef ADMINMODE
+
+	!insertmacro AutoupdateTaskRemove
+	${NSD_GetState} $_Autoupdate_ $0
+	${If} $0 == ${BST_CHECKED}
+		!insertmacro AutoupdateTaskCreate
 	${EndIf}
 
-	${NSD_GetState} $ChromeCheckbox $0
-	${If} $0 <> 0
+	${NSD_GetState} $_FWrule_ $0
+	${If} $0 == ${BST_CHECKED}
+		!insertmacro fwRuleCreate "$INSTDIR\$TSexe" $0
+	${EndIf}
+
+!endif
+
+	${NSD_GetState} $_Chrome_ $0
+	${If} $0 == ${BST_CHECKED}
 		ExecShell "open" "https://chrome.google.com/webstore/detail/torrserver-adder/ihphookhabmjbgccflngglmidjloeefg"
 	${EndIf}
 
-	${NSD_GetState} $FirefoxCheckbox $0
-	${If} $0 <> 0
+	${NSD_GetState} $_Firefox_ $0
+	${If} $0 == ${BST_CHECKED}
 		ExecShell "open" "https://addons.mozilla.org/firefox/addon/torrserver-adder"
 	${EndIf}
 
+	Pop $0
 FunctionEnd
 
-!macro commonInstallSection
+!macro tslShortcut arg
+	CreateShortCut "${SHORTCUTSDIR}\tsl.exe ${arg}.lnk" "$INSTDIR\tsl.exe" "${arg}"
+!macroend
 
-	Call CloseTS ; стопорим сервер(если запущен)
-	DeleteRegValue HKCU "${REG_RUN_SUBKEY}" "${APPNAME}" ; удаляем автостарт
-	Delete "$DESKTOP\${APPNAME}.lnk" ; удаляем иконку на рабочем столе
+!macro preInstall
+	Push  $0
 	SetOutPath "$INSTDIR"
+	AccessControl::GrantOnFile  "$INSTDIR" "(S-1-1-0)" "FullAccess"	; права на папку торрсервера все для всех
+	Pop  $0
+	!insertmacro CloseTS $RunOnComplete						; стопорим сервер(если запущен), запоминаем был ли запущен tsl на момент установки(понадобится при скрытой установке)
+ 	RMDir /r "$INSTDIR\Setup"								; удаляем неиспользуемые остатки от v.2
+	DeleteRegValue HKCU "${REG_UNINST_SUBKEY}" "TSLVersion"	; -//-, версию tsl больше не храним, всегда ставим последнюю при обновлении TS
+	Delete "$INSTDIR\1"										; удаляем логи от ExecDos:: которые могли появится в v.2
 	SetOverwrite on
-	WriteUninstaller "$INSTDIR\${UNINST}.exe"	; деинсталлятор
+	Pop  $0
+!macroend
+
+!macro postInstall
+
+	; SetOverwrite off       									; создаем базы если они еще не существуют
+	; File "files\db\torrserver.db"								; базы с отключенным μTP и предзагрузкой 20/32мб
+	; File "files\db\config.db"
+	WriteUninstaller "$INSTDIR\${UNINSTALLER}"				; деинсталлятор
 
 	; создаем записи в реестре
-	WriteRegStr HKCU "Software\${APPNAME}" "" '"$INSTDIR"'
+	WriteRegStr HKCU "Software\${APPNAME}" "" "$INSTDIR"
 	WriteRegStr HKCU "${REG_UNINST_SUBKEY}" "DisplayName" "${APPNAME}"
-	WriteRegStr HKCU "${REG_UNINST_SUBKEY}" "DisplayVersion" "$TorrServer_ver"
-	WriteRegStr HKCU "${REG_UNINST_SUBKEY}" "TSLVersion" "$TSL_ver"
-	WriteRegStr HKCU "${REG_UNINST_SUBKEY}" "UninstallString" '"$INSTDIR\${UNINST}.exe"'
+	WriteRegStr HKCU "${REG_UNINST_SUBKEY}" "DisplayVersion" "$TS_toInstall"
+	WriteRegStr HKCU "${REG_UNINST_SUBKEY}" "UninstallString" '"$INSTDIR\${UNINSTALLER}"'
 	WriteRegStr HKCU "${REG_UNINST_SUBKEY}" "ModifyPath" '"$INSTDIR\${ONLINE_INSTALLER}" /SkipWelcome'
-	WriteRegStr HKCU "${REG_UNINST_SUBKEY}" "DisplayIcon" '"$INSTDIR\${TSLEXE}",0'
+	WriteRegStr HKCU "${REG_UNINST_SUBKEY}" "DisplayIcon" '"$INSTDIR\tsl.exe",0'
 	WriteRegStr HKCU "${REG_UNINST_SUBKEY}" "Publisher" "${PRODUCT_PUBLISHER}"
 	WriteRegDWORD HKCU "${REG_UNINST_SUBKEY}" "NoModify" 0
 	WriteRegDWORD HKCU "${REG_UNINST_SUBKEY}" "NoRepair" 1
 
-	; создаем папку ярлыков установщиков
-	CreateDirectory "${SETUPDIR}\$(_OLD_VERSIONS_)"
-	CreateShortCut "${SETUPDIR}\$(_CHECK_UPDATES_).lnk" "$INSTDIR\${ONLINE_INSTALLER}" "/SkipWelcome"
-	CreateShortCut "${SETUPDIR}\$(_UNINSTALL_).lnk" "$INSTDIR\${UNINST}.exe"
-	!insertmacro setupShortcut "1.1.65"
-	!insertmacro setupShortcut "1.1.68"
-	!insertmacro setupShortcut "1.1.77"
-	!insertmacro setupShortcut "MatriX.106"
-	!insertmacro setupShortcut "MatriX.109"
-	!insertmacro setupShortcut "MatriX.110"
-	!insertmacro setupShortcut "MatriX.112"
-	!insertmacro setupShortcut "MatriX.114"
-	!insertmacro setupShortcut "MatriX.115"
-	!insertmacro setupShortcut "MatriX.116"
-	!insertmacro setupShortcut "MatriX.117"
-	!insertmacro setupShortcut "MatriX.118"
-	!insertmacro setupShortcut "MatriX.119"
-
-	; создаем папку ярлыков запуска
+	; создаем папку ярлыков запуска tsl
 	CreateDirectory "${SHORTCUTSDIR}"
-	!insertmacro tslShortcut ""
+	CreateShortCut "${SHORTCUTSDIR}\tsl.exe.lnk" "$INSTDIR\tsl.exe"
 	!insertmacro tslShortcut "--start"
 	; !insertmacro tslShortcut "--stop"
 	!insertmacro tslShortcut "--close"
@@ -307,63 +508,142 @@ FunctionEnd
 	!insertmacro tslShortcut "--show"
 	!insertmacro tslShortcut "--hide"
 	!insertmacro tslShortcut "--web"
-	; !insertmacro tslShortcut "--reset"
 
 	; создаем папку ссылок
-	RMDir /r "$INSTDIR\Ссылки"
 	CreateDirectory "${LINKSDIR}"
-	WriteIniStr "${LINKSDIR}\$(_EXTENSION_FOR_) Chrome.url" "InternetShortcut" "URL" "https://chrome.google.com/webstore/detail/torrserver-adder/ihphookhabmjbgccflngglmidjloeefg"
-	WriteIniStr "${LINKSDIR}\$(_EXTENSION_FOR_) Firefox.url" "InternetShortcut" "URL" "https://addons.mozilla.org/firefox/addon/torrserver-adder"
+	WriteIniStr "${LINKSDIR}\$(_CHROME_EXTENSION_).url" "InternetShortcut" "URL" "https://chrome.google.com/webstore/detail/torrserver-adder/ihphookhabmjbgccflngglmidjloeefg"
+	WriteIniStr "${LINKSDIR}\$(_FIREFOX_EXTENSION_).url" "InternetShortcut" "URL" "https://addons.mozilla.org/firefox/addon/torrserver-adder"
 	WriteIniStr "${LINKSDIR}\TorrServer.url" "InternetShortcut" "URL" "https://github.com/YouROK/TorrServer"
 	WriteIniStr "${LINKSDIR}\TSL.url" "InternetShortcut" "URL" "https://github.com/Noperkot/TSL"
 
 	; создаем папку в меню "Старт"
 	RMDir /r "$SMPROGRAMS\${APPNAME}"
 	CreateDirectory "$SMPROGRAMS\${APPNAME}"
-	CreateShortCut "$SMPROGRAMS\${APPNAME}\${APPNAME}.lnk" "$INSTDIR\${TSLEXE}"
-	CreateShortCut "$SMPROGRAMS\${APPNAME}\$(_LINKS_).lnk" "${LINKSDIR}"
-	CreateShortCut "$SMPROGRAMS\${APPNAME}\$(_SETUP_).lnk" "${SETUPDIR}"
+	CreateShortCut "$SMPROGRAMS\${APPNAME}\$(_LAUNCH_) ${APPNAME}.lnk" "$INSTDIR\tsl.exe"
+	CreateShortCut "$SMPROGRAMS\${APPNAME}\$(_UPDATE_) ${APPNAME}.lnk" "$INSTDIR\${ONLINE_INSTALLER}" "/SkipWelcome"
+	CreateShortCut "$SMPROGRAMS\${APPNAME}\$(_UNINSTALL_) ${APPNAME}.lnk" "$INSTDIR\${UNINSTALLER}"
+	; CreateShortCut "$SMPROGRAMS\${APPNAME}\$(_LINKS_).lnk" "${LINKSDIR}"
 
 !macroend
 
 
 Section Uninstall
-	Call un.CloseTS ; стопорим сервер(если запущен)
+	; стопорим сервер(если запущен)
+	!insertmacro CloseTS $0
 	;Remove from registry...
 	DeleteRegKey HKCU "${REG_UNINST_SUBKEY}"
-	DeleteRegKey HKCU "SOFTWARE\${APPNAME}"
+	DeleteRegKey HKCU "Software\${APPNAME}"
 	DeleteRegValue HKCU "${REG_RUN_SUBKEY}" "${APPNAME}"
 	; Delete Shortcuts
 	Delete "$DESKTOP\${APPNAME}.lnk"
 	RMDir /r "$SMPROGRAMS\${APPNAME}"
+!ifdef ADMINMODE
+	; Delete autoupdate task
+	!insertmacro AutoupdateTaskRemove
+	; Delete firewall rules
+	!insertmacro fwRuleRemove "$INSTDIR\${TS32EXE}" $0
+	!insertmacro fwRuleRemove "$INSTDIR\${TS64EXE}" $0
+!endif
 	; Clean up Application
-	Delete "$INSTDIR\${TSLEXE}"
-	Delete "$INSTDIR\TorrServer-windows-386.exe"
-	Delete "$INSTDIR\TorrServer-windows-amd64.exe"
+	Delete "$INSTDIR\tsl.exe"
+	Delete "$INSTDIR\${TS32EXE}"
+	Delete "$INSTDIR\${TS64EXE}"
 	Delete "$INSTDIR\config.db"
+	Delete "$INSTDIR\viewed.json"
+	Delete "$INSTDIR\settings.json"
 	Delete "$INSTDIR\torrserver.db"
 	Delete "$INSTDIR\torrserver.db.lock"
 	Delete "$INSTDIR\rutor.ls"
 	Delete "$INSTDIR\${ONLINE_INSTALLER}"
 	RMDir /r "$INSTDIR\Ссылки"
 	RMDir /r "${LINKSDIR}"
-	RMDir /r "${SETUPDIR}"
 	RMDir /r "${SHORTCUTSDIR}"
-	Delete "$INSTDIR\${UNINST}.exe"
-	RMDir "$INSTDIR\"
+	Delete "$INSTDIR\${UNINSTALLER}"
+	Sleep 500
+	RMDir "$INSTDIR"
 SectionEnd
+
+Section Abort Abort_ID
+	${If} $AbortMessage != ""
+		DetailPrint "$AbortMessage"
+		DetailPrint "$(_INSTALLATION_FAILED_)"
+		SetDetailsView show
+		Abort
+	${EndIf}
+SectionEnd
+
+Function .onInit
+	Push $0
+/*
+ 	${IfNot} ${AtLeastWin7}	; NSxfer под XP с github работать не будет (tls 1.2)
+		MessageBox MB_OK|MB_ICONSTOP "$(_REQUIRES_WIN7_)" /SD IDOK
+		Quit
+	${EndIf}
+*/
+	;
+	!insertmacro CheckMutex	; проверка уже запущенного экземпляра установщика
+	;
+ 	; имя экзешника ТС в зависимости от разрядности ОС
+	${If} ${RunningX64}
+		Push ${TS64EXE} ; если тут сразу присваивать StrCpy $TSexe ${TS64EXE} то на VT поднимается целый гвалт
+	${Else}
+		Push ${TS32EXE}
+	${EndIf}
+	Pop $TSexe
+	;
+	ClearErrors
+	ReadRegStr $0 HKCU "Software\${APPNAME}" ""				; проверка существующей установки
+	${IfNot} ${Errors}										; если уже установлено
+		${StrRep} $0 $0 '"' ''								; в старых версиях установщика путь писался в кавычках, удаляем их
+		StrCpy $INSTDIR $0									; берем путь установки
+	${EndIf}
+	;
+	ReadRegStr $TS_Installed HKCU "${REG_UNINST_SUBKEY}" "DisplayVersion"	; получаем версию установленного TS
+	StrCpy $TempDir "$PLUGINSDIR" ; \downloads
+	Pop $0
+FunctionEnd
+
+Function un.onInit
+	!insertmacro CheckMutex
+FunctionEnd
+
+Function .onInstSuccess
+	${If} $RunOnComplete != ${BST_UNCHECKED}
+		; перед запуском убиваем левые процессы торрсервера
+		KillProcDLL::KillProc "${TS32EXE}"
+		KillProcDLL::KillProc "${TS64EXE}"
+		KillProcDLL::KillProc "TorrServer.exe"
+		Exec '"$INSTDIR\tsl.exe" --start'
+	${EndIf}
+FunctionEnd
+
+; LangString _REQUIRES_WIN7_ ${LANG_RUSSIAN} "Требуется Windows 7 или выше" ; $(_REQUIRES_WIN7_)
+; LangString _REQUIRES_WIN7_ ${LANG_ENGLISH} "Requires Windows 7 or higher"
+
+LangString _UNEXPECTED_ERROR_ ${LANG_RUSSIAN} "Непредвиденная ошибка" ; $(_UNEXPECTED_ERROR_)
+LangString _UNEXPECTED_ERROR_ ${LANG_ENGLISH} "Unexpected error"
 
 LangString _ALREADY_RUNNING_ ${LANG_RUSSIAN} "Установка уже выполняется" ; $(_ALREADY_RUNNING_)
 LangString _ALREADY_RUNNING_ ${LANG_ENGLISH} "The installer is already running"
 
-LangString _REINSTALL_TEXT_ ${LANG_RUSSIAN} "Обновление установки" ; $(_REINSTALL_TEXT_)
-LangString _REINSTALL_TEXT_ ${LANG_ENGLISH} "Updating the installation"
-
 LangString _REINSTALL_SUBTEXT_ ${LANG_RUSSIAN} "Переустановка возможна только в существующую папку. Для выбора другого расположения удалите TorrServer и выполните установку заново." ; $(_REINSTALL_SUBTEXT_)
 LangString _REINSTALL_SUBTEXT_ ${LANG_ENGLISH} "Reinstalling is only possible in an existing folder. To select a different location, delete TorrServer and perform the installation again."
 
-LangString _EXTENSION_FOR_ ${LANG_RUSSIAN} "Расширение для" ; $(_EXTENSION_FOR_)
-LangString _EXTENSION_FOR_ ${LANG_ENGLISH} "Extension for"
+LangString _CHROME_EXTENSION_ ${LANG_RUSSIAN} "Расширениe Chrome" ; $(_CHROME_EXTENSION_)
+LangString _CHROME_EXTENSION_ ${LANG_ENGLISH} "Chrome Extensions"
+
+LangString _FIREFOX_EXTENSION_ ${LANG_RUSSIAN} "Расширениe Firefox" ; $(_FIREFOX_EXTENSION_)
+LangString _FIREFOX_EXTENSION_ ${LANG_ENGLISH} "Firefox Extensions"
+
+!ifdef ADMINMODE
+
+	LangString _ADD_FWRULE_EXCEPTIONS_ ${LANG_RUSSIAN} "Добавить в исключения брандмауэра" ; $(_ADD_FWRULE_EXCEPTIONS_)
+	LangString _ADD_FWRULE_EXCEPTIONS_ ${LANG_ENGLISH} "Add to firewall exceptions"
+
+	LangString _AUTOUPDATE_ ${LANG_RUSSIAN} "Автообновление" ; $(_AUTOUPDATE_)
+	LangString _AUTOUPDATE_ ${LANG_ENGLISH} "Autoupdate"
+
+!endif
 
 LangString _LAUNCH_ON_LOGON_ ${LANG_RUSSIAN} "Запускать при входе в Windows" ; $(_LAUNCH_ON_LOGON_)
 LangString _LAUNCH_ON_LOGON_ ${LANG_ENGLISH} "Launch on logon"
@@ -371,26 +651,32 @@ LangString _LAUNCH_ON_LOGON_ ${LANG_ENGLISH} "Launch on logon"
 LangString _DESKTOP_SHORTCUT_ ${LANG_RUSSIAN} "Ярлык на Рабочий стол" ; $(_DESKTOP_SHORTCUT_)
 LangString _DESKTOP_SHORTCUT_ ${LANG_ENGLISH} "Create shortcut on Desktop"
 
-LangString _LINKS_ ${LANG_RUSSIAN} "Ссылки" ; $(_LINKS_)
-LangString _LINKS_ ${LANG_ENGLISH} "Links"
+; LangString _LINKS_ ${LANG_RUSSIAN} "Ссылки" ; $(_LINKS_)
+; LangString _LINKS_ ${LANG_ENGLISH} "Links"
 
-LangString _SETUP_ ${LANG_RUSSIAN} "Установка" ; $(_SETUP_)
-LangString _SETUP_ ${LANG_ENGLISH} "Setup"
+LangString _LAUNCH_ ${LANG_RUSSIAN} "Запустить" ; $(_LAUNCH_)
+LangString _LAUNCH_ ${LANG_ENGLISH} "Launch"
 
-LangString _CHECK_UPDATES_ ${LANG_RUSSIAN} "Проверить обновления" ; $(_CHECK_UPDATES_)
-LangString _CHECK_UPDATES_ ${LANG_ENGLISH} "Check for updates"
+LangString _UPDATE_ ${LANG_RUSSIAN} "Обновить" ; $(_UPDATE_)
+LangString _UPDATE_ ${LANG_ENGLISH} "Update"
 
 LangString _UNINSTALL_ ${LANG_RUSSIAN} "Удалить" ; $(_UNINSTALL_)
 LangString _UNINSTALL_ ${LANG_ENGLISH} "Uninstall"
 
-LangString _OLD_VERSIONS_ ${LANG_RUSSIAN} "Прошлые версии" ; $(_OLD_VERSIONS_)
-LangString _OLD_VERSIONS_ ${LANG_ENGLISH} "Old versions"
+LangString _NO_UPDATES_FOUND_ ${LANG_RUSSIAN} "Установлена последняя версия" ; $(_NO_UPDATES_FOUND_)
+LangString _NO_UPDATES_FOUND_ ${LANG_ENGLISH} "Latest version installed"
 
-LangString _NO_UPDATES_FOUND_ ${LANG_RUSSIAN} "Обновлений не найдено" ; $(_NO_UPDATES_FOUND_)
-LangString _NO_UPDATES_FOUND_ ${LANG_ENGLISH} "No updates found"
+LangString _REINSTALL_ ${LANG_RUSSIAN} "Пере&установить" ; $(_REINSTALL_)
+LangString _REINSTALL_ ${LANG_ENGLISH} "Re&install"
 
-LangString _UPDATES_AVAILABLE_ ${LANG_RUSSIAN} "Доступно обновление" ; $(_UPDATES_AVAILABLE_)
-LangString _UPDATES_AVAILABLE_ ${LANG_ENGLISH} "Update available"
+LangString _CUSTOM_PAGE_TITLE_ ${LANG_RUSSIAN} "Параметры установки" ; $(_CUSTOM_PAGE_TITLE_)
+LangString _CUSTOM_PAGE_TITLE_ ${LANG_ENGLISH} "Installation Options"
 
-LangString _TO_INSTALL_ ${LANG_RUSSIAN} "Будут установлены следующие продукты:" ; $(_TO_INSTALL_)
-LangString _TO_INSTALL_ ${LANG_ENGLISH} "The following products will be installed:"
+LangString _NEW_VERSION_ ${LANG_RUSSIAN} "новая версия" ; $(_NEW_VERSION_)
+LangString _NEW_VERSION_ ${LANG_ENGLISH} "new version"
+
+LangString _INSTALLATION_FAILED_ ${LANG_RUSSIAN} "УСТАНОВКА НЕ УДАЛАСЬ" ; $(_INSTALLATION_FAILED_)
+LangString _INSTALLATION_FAILED_ ${LANG_ENGLISH} "INSTALLATION FAILED"
+
+LangString _TASK_DESCRIPTION_ ${LANG_RUSSIAN} "Обновление ${APPNAME}" ; $(_TASK_DESCRIPTION_)
+LangString _TASK_DESCRIPTION_ ${LANG_ENGLISH} "${APPNAME} update"
