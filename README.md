@@ -1,9 +1,8 @@
-#### *Онлайн-установщик TorrServer (Windows).*  
+#### *Онлайн-установщик TorrServer для Windows* - [*TorrServer_Setup.exe*](../../releases/latest/download/TorrServer_Setup.exe) 
   
-Сам скачает актуальные версии всех необходимых компонентов (TorrServer+Launcher), разложит по папкам и создаст ярлыки. При наличии администраторских прав добавит торрсервер в исключения брандмауэра и создаст задачу автообновления версии TorrServer.
-  
-[**TorrServer_Setup.exe**](../../releases/latest/download/TorrServer_Setup.exe)  
-
+Сам скачает актуальные версии необходимых компонентов ([*TorrServer*](https://github.com/YouROK/TorrServer)+[*TSL*](https://github.com/Noperkot/TSL)), разложит по папкам и создаст ярлыки.  
+При наличии администраторских прав добавит торрсервер в исключения брандмауэра и создаст задачу автообновления версии TorrServer.  
+    
 #
 <details><summary>Скриншоты</summary><br \>  
   
